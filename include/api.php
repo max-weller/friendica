@@ -1631,9 +1631,9 @@
 			$sql_extra = "`parent-uri`='".dbesc( $_GET["uri"] )  ."'";
 		}
 		elseif ($box=="all") {
-			$sql_extra = "true";
-		}
-		elseif ($box=="inbox") {
+                        $sql_extra = "true";
+                }
+                elseif ($box=="inbox") {
 			$sql_extra = "`from-url`!='".dbesc( $profile_url )."'";
 		}
 		
@@ -1680,6 +1680,34 @@
 	function api_direct_messages_conversation(&$a, $type){
 		return api_direct_messages_box($a, $type, "conversation");
 	}
+        function api_direct_messages_conversations(&$a, $type){
+
+                if (local_user()===false) return false;
+
+                $user_info = api_get_user($a);
+
+                // params
+                $count = (x($_GET,'count')?$_GET['count']:20);
+                $page = (x($_REQUEST,'page')?$_REQUEST['page']-1:0);
+                if ($page<0) $page=0;
+
+                $start = $page*$count;
+
+              	$r = q("SELECT max(`mail`.`created`) AS `mailcreated`, min(`mail`.`seen`) AS `mailseen`,
+			`mail`.* , `contact`.`name`, `contact`.`url`, `contact`.`thumb` , `contact`.`network`,
+			count( * ) as count
+			FROM `mail` LEFT JOIN `contact` ON `mail`.`contact-id` = `contact`.`id`
+			WHERE `mail`.`uid` = %d GROUP BY `parent-uri` ORDER BY `mailcreated` DESC LIMIT %d , %d ",
+			intval(local_user()),
+			//
+			intval($start),
+			intval($count)
+		);
+		return api_apply_template("direct_messages", $type, array('$messages' => $r));
+        }
+
+
+        api_register_func('api/direct_messages/conversations','api_direct_messages_conversations',true);
 	api_register_func('api/direct_messages/conversation','api_direct_messages_conversation',true);
 	api_register_func('api/direct_messages/all','api_direct_messages_all',true);
 	api_register_func('api/direct_messages/sent','api_direct_messages_sentbox',true);
@@ -1710,6 +1738,63 @@
 
 	api_register_func('api/oauth/request_token', 'api_oauth_request_token', false);
 	api_register_func('api/oauth/access_token', 'api_oauth_access_token', false);
+
+
+
+        /**
+         *
+         */
+        function api_gcm_register(&$a, $type){
+                if (local_user()===false) return false;
+
+                $user_info = api_get_user($a);
+
+                // params
+                $id = $_POST["registration_id"];
+
+                logger('API: api_gcm_register: '.$id);
+
+		$r = q("INSERT ignore INTO gcm_registration_ids (registration_id, uid) values ('%s', %d)",
+			dbesc($id), intval(local_user())
+			);
+
+                if ($type == 'xml')
+                        $ok = "true";
+                else
+                        $ok = "ok";
+
+                return api_apply_template('test', $type, array('$ok' => $ok));
+        }
+        api_register_func('api/gcm/register','api_gcm_register', true);
+
+        /**
+         *
+         */
+        function api_gcm_unregister(&$a, $type){
+                if (local_user()===false) return false;
+
+                $user_info = api_get_user($a);
+
+                // params
+                $id = $_POST["registration_id"];
+
+                logger('API: api_gcm_register: '.$id);
+
+                $r = q("delete from gcm_registration_ids where registration_id='%s' AND uid= %d ",
+                        dbesc($id), intval(local_user())
+                        );
+
+                if ($type == 'xml')
+                        $ok = "true";
+                else
+                        $ok = "ok";
+
+                return api_apply_template('test', $type, array('$ok' => $ok));
+        }
+        api_register_func('api/gcm/unregister','api_gcm_unregister', true);
+
+
+
 
 /*
 Not implemented by now:

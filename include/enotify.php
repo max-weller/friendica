@@ -306,7 +306,38 @@ function notification($params) {
 		intval($notify_id),
 		intval($params['uid'])
 	);
-		
+	
+	// send via Google Cloud Messaging, if registered
+
+
+	// I registered the following API key for use with friendica app...
+	// this should be probably be an option for the server admin. then
+	// every server admin could request his own api key from google.
+	// then we'd also need a method to tell the app the so-called "sender id"
+	$GCM_API_KEY = "AIzaSyDToOa5XgjcXZiEju0Y0mQVXzAhqPCzqII";
+
+
+	$registration_ids = q("SELECT registration_id FROM gcm_registration_ids WHERE uid = %d", intval($datarray['uid']));
+	logger('notification: number of registered gcm devices: '.count($registration_ids).' (for uid'.$datarray['uid'].')');
+	logger('notification: reg_ids: '.print_r($registration_ids,true));
+	if (count($registration_ids) > 0) {
+	  $gcm_data = array("registration_ids" => array(), "data" => $datarray);
+	  foreach($registration_ids as $d) $gcm_data["registration_ids"][] = $d["registration_id"];
+	  foreach($gcm_data["data"] as $k=>$v) $gcm_data["data"][$k] = is_string($v) ? $v : json_encode($v); //google wants strings only!
+	  $gcm_string = json_encode($gcm_data);
+	  logger('notification: gcm outdata='.$gcm_string);
+	  $resultdata = do_post_request("https://android.googleapis.com/gcm/send", $gcm_string, array("Content-Type: application/json","Authorization: key=$GCM_API_KEY"));
+	  logger('notification: gcm result='.$resultdata);
+	  $result = json_decode($resultdata,true);
+	  if($result["canonical_ids"]>0) { //replace registration_ids by new (canonical) ids, if any
+	    for($i=0;$i<count($result["results"]);$i++) {
+	      if ($result["results"]["registration_id"]) {
+	        q("DELETE FROM gcm_registration_ids WHERE uid = %d AND registration_id = '%s'", intval($datarray['uid']), dbesc($gcm_data["registration_ids"][$i]));
+	        q("INSERT ignore INTO gcm_registration_ids (registration_id, uid) VALUES ('%s', %d)", dbesc($result["results"]["registration_id"]), intval($datarray['uid']));
+	      }
+            }
+          }
+	}
 
 	// send email notification if notification preferences permit
 
@@ -440,6 +471,24 @@ intval($params['uid']), LOGGER_DEBUG);
 
 	pop_lang();
 
+}
+
+
+function do_post_request($url, $data, $optional_headers = null, $method="POST", &$result_code=null){
+  $ch = curl_init();
+  curl_setopt ($ch, CURLOPT_URL, $url);
+  curl_setopt ($ch, CURLOPT_USERAGENT, "TeamWiki/1.0 php/5 curl");
+  curl_setopt ($ch, CURLOPT_HEADER, 0);
+  curl_setopt ($ch, CURLOPT_RETURNTRANSFER, 1);
+  curl_setopt ($ch, CURLOPT_FAILONERROR, 1);
+  curl_setopt ($ch, CURLOPT_SSL_VERIFYPEER, 0);
+  curl_setopt ($ch, CURLOPT_POSTFIELDS, $data);
+  curl_setopt ($ch, CURLOPT_CUSTOMREQUEST, $method);
+  if ($optional_headers) curl_setopt ($ch, CURLOPT_HTTPHEADER, $optional_headers);
+  $results = curl_exec ($ch);
+  $result_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+  curl_close ($ch);
+  return $results;
 }
 
 require_once('include/email.php');
